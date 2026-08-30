@@ -1,0 +1,76 @@
+name: self-maintaining-api
+
+# Watch the specs every morning. Anything breaking that this repo actually calls
+# gets patched on a branch and opened as a PR for review — never merged.
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      fix:
+        description: 'Patch and open a PR (otherwise report only)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # sma's own tests. If the detector is broken, its verdicts mean nothing.
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+
+  check:
+    needs: self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm ci
+
+      # The repair step shells out to headless Claude Code.
+      - run: npm install -g @anthropic-ai/claude-code
+
+      - name: Configure git
+        run: |
+          git config user.name  "sma[bot]"
+          git config user.email "sma@users.noreply.github.com"
+
+      # `.sma/specs/` is the memory of what the specs looked like last time. It is
+      # committed to the repo rather than cached: a cache eviction would make every
+      # run a first run, and sma would report "all clear" forever while detecting
+      # nothing. Silent failure is the one failure mode worth paying to avoid.
+      - name: Check specs, map impact, open PRs
+        id: sma
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node sma.mjs run ${{ inputs.fix == false && '' || '--fix' }}
+
+      # Push the new baseline even when a breaking change was found — especially
+      # then. Skipping it would re-detect and re-report the same change tomorrow.
+      - name: Commit the new baseline
+        run: |
+          git add .sma/specs
+          git diff --cached --quiet || git commit -m "chore(sma): update spec baseline"
+          git push origin HEAD:${{ github.ref_name }} || echo "nothing to push"
+
+      # Exit 1 means an API broke us; exit 2 means sma itself failed. Both should
+      # fail the job, but only after the baseline is safely pushed.
+      - name: Report result
+        run: exit ${{ steps.sma.outcome == 'success' && '0' || '1' }}

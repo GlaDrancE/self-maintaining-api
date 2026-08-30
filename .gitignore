@@ -1,0 +1,10 @@
+node_modules/
+
+# sma: per-run artifacts. .sma/specs/ is deliberately NOT ignored — it is the
+# baseline every future run diffs against, and it belongs in version control.
+.sma/changes/
+.sma/impact/
+.sma/prompts/
+.sma/pr/
+.sma/runs.json
+.sma/inventory.json

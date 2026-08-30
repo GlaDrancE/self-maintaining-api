@@ -1,0 +1,107 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "PetStore", "version": "2.0.0" },
+  "servers": [{ "url": "http://localhost:8787" }],
+  "components": {
+    "securitySchemes": {
+      "apiKey": { "type": "apiKey", "in": "header", "name": "X-Api-Key" }
+    },
+    "schemas": {
+      "Pet": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["available", "pending", "sold"] }
+        },
+        "required": ["id", "name"]
+      },
+      "NewPet": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "tag": { "type": "string" },
+          "ownerId": { "type": "integer" }
+        },
+        "required": ["name", "ownerId"]
+      },
+      "Owner": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" }
+        },
+        "required": ["id", "name"]
+      }
+    }
+  },
+  "paths": {
+    "/pets": {
+      "get": {
+        "operationId": "listPets",
+        "parameters": [
+          { "name": "pageSize", "in": "query", "required": false, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "a list of pets",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Pet" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPet",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/NewPet" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "the created pet",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Pet" } }
+            }
+          }
+        }
+      }
+    },
+    "/pets/{id}": {
+      "get": {
+        "operationId": "getPet",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "a pet",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Pet" } }
+            }
+          }
+        }
+      }
+    },
+    "/pets/{id}/owner": {
+      "get": {
+        "operationId": "getPetOwner",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "the owner",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Owner" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

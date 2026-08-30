@@ -1,0 +1,22 @@
+{
+  "name": "self-maintaining-api",
+  "version": "1.0.0",
+  "description": "Watch external API specs, find what they break in your repo, patch it, open a PR.",
+  "keywords": ["openapi", "breaking-changes", "api", "codemod", "ci"],
+  "license": "MIT",
+  "repository": "github:ayush/self-maintaining-api",
+  "type": "module",
+  "bin": { "sma": "./sma.mjs" },
+  "files": ["sma.mjs", "src/", "README.md", "LICENSE"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "prepublishOnly": "npm test",
+    "test": "node --test test/*.test.mjs",
+    "petstore": "node demo/petstore/server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
+    "ts-morph": "^27.0.0",
+    "yaml": "^2.8.1"
+  }
+}
