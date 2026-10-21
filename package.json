@@ -1,6 +1,6 @@
 {
   "name": "self-maintaining-api",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Watch external API specs, find what they break in your repo, patch it, open a PR.",
   "keywords": [
     "openapi",
