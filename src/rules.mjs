@@ -41,6 +41,10 @@ function successResponse(op) {
   return codes.length ? { code: codes[0], schema: jsonSchemaOf(op.responses[codes[0]]) } : null;
 }
 
+// OpenAPI 3.1 allows `type: ["string", "null"]`. Arrays compare by reference, so
+// without this every such field read as "changed type" on every run.
+const typeOf = (t) => (Array.isArray(t) ? [...t].sort().join(',') : t);
+
 // Every parameter and body property normalised into one shape, so the rules below
 // only ever deal with { name, in, type, required, enum }.
 function fieldsOf(op, pathItem) {
@@ -49,7 +53,7 @@ function fieldsOf(op, pathItem) {
     out.set(`${p.in}:${p.name}`, {
       name: p.name,
       in: p.in,
-      type: p.schema?.type ?? p.type,
+      type: typeOf(p.schema?.type ?? p.type),
       required: !!p.required,
       enum: p.schema?.enum,
     });
@@ -59,7 +63,7 @@ function fieldsOf(op, pathItem) {
     out.set(`body:${name}`, {
       name,
       in: 'body',
-      type: schema.type,
+      type: typeOf(schema.type),
       required: (body.required ?? []).includes(name),
       enum: schema.enum,
     });
@@ -71,7 +75,7 @@ function responseFieldsOf(op) {
   const res = successResponse(op);
   const out = new Map();
   for (const [name, schema] of Object.entries(res?.schema?.properties ?? {})) {
-    out.set(name, { name, type: schema.type, enum: schema.enum, code: res.code });
+    out.set(name, { name, type: typeOf(schema.type), enum: schema.enum, code: res.code });
   }
   return out;
 }

@@ -13,7 +13,7 @@ Only the latest 1.0.x release receives fixes. There are no backports.
 
 Report privately — do not open a public issue.
 
-- Preferred: [GitHub private vulnerability reporting](https://github.com/ayush/self-maintaining-api/security/advisories/new)
+- Preferred: [GitHub private vulnerability reporting](https://github.com/GlaDrancE/self-maintaining-api/security/advisories/new)
 - Or email the maintainer listed on the repository's GitHub profile.
 
 Include the version, your `watch.yaml` (redact tokens), and the smallest spec or

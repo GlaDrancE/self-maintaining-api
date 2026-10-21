@@ -3,7 +3,7 @@
 ## Setup
 
 ```bash
-git clone https://github.com/ayush/self-maintaining-api
+git clone https://github.com/GlaDrancE/self-maintaining-api
 cd self-maintaining-api
 npm install          # node 22+ required: native fetch and node --test
 node sma.mjs doctor  # tells you what is missing and what each miss costs

@@ -56,6 +56,15 @@ test('reordered parameters and enum values are not a change', async () => {
   assert.deepEqual(applyRules(a, b), []);
 });
 
+test('an OpenAPI 3.1 type array is compared by value, not by reference', async () => {
+  // Found on api.weather.gov: `type: ["string", "null"]` read as "changed type" on every run.
+  const a = await load('v1');
+  a.paths['/pets/{id}'].get.responses['200'].content['application/json'].schema.properties.name.type = ['string', 'null'];
+  const b = structuredClone(a);
+  b.paths['/pets/{id}'].get.responses['200'].content['application/json'].schema.properties.name.type = ['null', 'string'];
+  assert.deepEqual(applyRules(a, b), []);
+});
+
 test('a removed endpoint is breaking', async () => {
   const a = await load('v1');
   const b = structuredClone(a);

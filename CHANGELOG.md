@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
 ### Added
 
 - `sma diff <old> <new>` classifies the changes between any two spec files or
@@ -22,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `sma run --fix` always failed with "uncommitted changes" when sma lived inside
+  the repo it patches (`repo: .`, the documented install): `check` had just written
+  the new baseline to `.sma/specs/`. A baseline-only diff is now committed on the
+  base branch before branching; any other dirty file still refuses.
+- OpenAPI 3.1 `type: ["string", "null"]` was reported as `*_TYPE_CHANGED` on every
+  run, because arrays were compared by reference. Found on api.weather.gov.
 - Every modified file after the first was reported to the scope check as
   `M path`, so a correct repair was labelled `needs-human`. Found by running the
   demo end to end.
@@ -81,5 +89,6 @@ First release.
 - Scheduled GitHub Actions workflow that self-tests, checks, patches and commits
   the new spec baseline.
 
-[Unreleased]: https://github.com/ayush/self-maintaining-api/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/ayush/self-maintaining-api/releases/tag/v1.0.0
+[Unreleased]: https://github.com/GlaDrancE/self-maintaining-api/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/GlaDrancE/self-maintaining-api/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/GlaDrancE/self-maintaining-api/releases/tag/v1.0.0

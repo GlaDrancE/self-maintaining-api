@@ -12,12 +12,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ayush/self-maintaining-api.git"
+    "url": "git+https://github.com/GlaDrancE/self-maintaining-api.git"
   },
   "bugs": {
-    "url": "https://github.com/ayush/self-maintaining-api/issues"
+    "url": "https://github.com/GlaDrancE/self-maintaining-api/issues"
   },
-  "homepage": "https://github.com/ayush/self-maintaining-api#readme",
+  "homepage": "https://github.com/GlaDrancE/self-maintaining-api#readme",
   "type": "module",
   "bin": {
     "sma": "./sma.mjs"

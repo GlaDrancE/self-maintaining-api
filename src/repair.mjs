@@ -6,6 +6,7 @@
 // all land on the same branch: a PR that fixes half of what an upgrade broke would
 // fail its own test suite.
 import { spawnSync } from 'node:child_process';
+import { join, relative } from 'node:path';
 import * as store from './store.mjs';
 
 const AGENT_TOOLS = 'Read,Edit,Write,Glob,Grep';
@@ -24,8 +25,6 @@ export function git(repo, args, opts = {}) {
 
 export const isGitRepo = (repo) =>
   spawnSync('git', ['-C', repo, 'rev-parse', '--git-dir'], { encoding: 'utf8' }).status === 0;
-
-export const isClean = (repo) => git(repo, ['status', '--porcelain']) === '';
 
 // Every path the agent touched, including ones it created. `git diff --name-only`
 // lists tracked modifications only, so a repair implemented as a new module looked
@@ -108,7 +107,18 @@ export function runTests(cfg) {
 
 export function startSession(cfg, apiName, stamp) {
   if (!isGitRepo(cfg.repoPath)) throw new Error(`${cfg.repoPath} is not a git repo — cannot branch`);
-  if (!isClean(cfg.repoPath)) throw new Error(`${cfg.repoPath} has uncommitted changes — commit or stash first`);
+  // With `repo: .` sma lives inside the repo it patches, and `check` has just written
+  // the new snapshot into the tracked .sma/specs/. That is sma's own state, not work
+  // in progress: commit it on the base branch, the same commit CI makes after a run.
+  // Anything else dirty is the user's, and still refuses.
+  const specs = `${relative(cfg.repoPath, join(store.SMA, 'specs')).split('\\').join('/')}/`;
+  const dirty = touchedFiles(cfg.repoPath);
+  if (dirty.length && dirty.every((f) => f.startsWith(specs))) {
+    git(cfg.repoPath, ['add', '--', specs]);
+    git(cfg.repoPath, ['commit', '-m', 'chore(sma): update spec baseline']);
+  } else if (dirty.length) {
+    throw new Error(`${cfg.repoPath} has uncommitted changes — commit or stash first`);
+  }
   const base = git(cfg.repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = `sma/${apiName}-${stamp}`;
   git(cfg.repoPath, ['checkout', '-b', branch]);
