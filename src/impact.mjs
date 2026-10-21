@@ -71,6 +71,8 @@ export function report(impacts) {
     const where = [i.method, i.path].filter(Boolean).join(' ') || '(whole spec)';
     lines.push(`[${i.severity}] ${i.rule}  ${where}`);
     lines.push(`    ${i.reason}`);
+    // No `sites` at all means nobody scanned a repo (`sma diff`) — say nothing.
+    if (!i.sites) continue;
     if (i.affected) for (const s of i.sites) lines.push(`    -> ${s.file}:${s.line}  ${s.snippet}`);
     else lines.push('    -> not affected (no call sites in this repo)');
   }

@@ -92,12 +92,15 @@ export function writeText(rel, text) {
   return file;
 }
 
-export function latestChanges() {
-  const dir = join(SMA, 'changes');
+// Newest timestamped JSON file under .sma/<sub>/, or null if there is none.
+export function latest(sub) {
+  const dir = join(SMA, sub);
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
-  return files.length ? read(join('changes', files.at(-1))) : null;
+  return files.length ? read(join(sub, files.at(-1))) : null;
 }
+
+export const latestChanges = () => latest('changes');
 
 export function appendRun(entry) {
   const runs = read('runs.json', []);

@@ -2,17 +2,46 @@
   "name": "self-maintaining-api",
   "version": "1.0.0",
   "description": "Watch external API specs, find what they break in your repo, patch it, open a PR.",
-  "keywords": ["openapi", "breaking-changes", "api", "codemod", "ci"],
+  "keywords": [
+    "openapi",
+    "breaking-changes",
+    "api",
+    "codemod",
+    "ci"
+  ],
   "license": "MIT",
-  "repository": "github:ayush/self-maintaining-api",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayush/self-maintaining-api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ayush/self-maintaining-api/issues"
+  },
+  "homepage": "https://github.com/ayush/self-maintaining-api#readme",
   "type": "module",
-  "bin": { "sma": "./sma.mjs" },
-  "files": ["sma.mjs", "src/", "README.md", "LICENSE"],
-  "engines": { "node": ">=22" },
+  "bin": {
+    "sma": "./sma.mjs"
+  },
+  "files": [
+    "sma.mjs",
+    "src/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "prepublishOnly": "npm test",
     "test": "node --test test/*.test.mjs",
-    "petstore": "node demo/petstore/server.mjs"
+    "petstore": "node demo/petstore/server.mjs",
+    "demo:setup": "node demo/setup.mjs",
+    "demo:real": "node demo/real-world/run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

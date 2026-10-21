@@ -227,6 +227,11 @@ function compareAuth(before, after, hits) {
   const b = after.components?.securitySchemes ?? {};
   for (const name of new Set([...Object.keys(a), ...Object.keys(b)])) {
     if (JSON.stringify(a[name]) === JSON.stringify(b[name])) continue;
+    // A scheme that did not exist before is an added option, not a changed contract.
+    // This rule is the only whole-spec one, so every hit claims every call site of
+    // the API and becomes repairable — an additive scheme used to open a PR
+    // rewriting auth everywhere. Removal and modification are still breaking.
+    if (a[name] === undefined) continue;
     hits.push({
       rule: 'AUTH_SCHEME_CHANGED',
       severity: SEVERITY.AUTH_SCHEME_CHANGED,

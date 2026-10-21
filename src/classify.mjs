@@ -12,6 +12,9 @@ export const CONFIDENCE_FLOOR = 0.7;
 const IGNORED = [
   /^\/info(\/|$)/,
   /^\/servers(\/|$)/,
+  // Top-level vendor extensions (`x-oaiMeta`, `x-tagGroups`) drive docs sites, not
+  // the wire. Found on OpenAI's real spec, where they were 4 of 9 reported changes.
+  /^\/x-[^/]*(\/|$)/,
   /^\/components\/schemas(\/|$)/,
   /(^|\/)(description|summary|example|examples|title|operationId|tags)(\/|$)/,
 ];

@@ -10,12 +10,19 @@ import { classify } from './src/classify.mjs';
 import { buildImpact, repairable, report } from './src/impact.mjs';
 import { startSession, applyOne, finish, git } from './src/repair.mjs';
 import { open } from './src/pr.mjs';
+import { renderReport } from './src/report.mjs';
+
+// Resolved against this file, never the cwd — an installed sma run from someone
+// else's project must report its own version, not theirs.
+const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
 // CI can only tell "your API broke" from "sma broke" if those are different numbers.
 const EXIT = { OK: 0, BREAKING: 1, FAILED: 2 };
 
 const [, , command = 'help', ...rest] = process.argv;
 const flags = new Set(rest.filter((a) => a.startsWith('--')));
+// Bare arguments, minus the value that belongs to --config.
+const positional = rest.filter((a, i) => !a.startsWith('--') && rest[i - 1] !== '--config');
 const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
 
 // Everything under .sma/ is a per-run artifact except specs/ — that is the baseline,
@@ -29,6 +36,7 @@ const IGNORE_LINES = [
   '.sma/pr/',
   '.sma/runs.json',
   '.sma/inventory.json',
+  '.sma/report.html',
 ];
 
 const CONFIG_TEMPLATE = `# The repo that gets scanned and patched, relative to this file.
@@ -106,11 +114,11 @@ const commands = {
     const cfg = store.loadConfig();
     const all = [];
     for (const api of cfg.apis) {
-      const spec = watcher.resolveRefs(await watcher.fetchSpec(api.spec));
+      const spec = watcher.resolveRefs(await watcher.fetchSpec(api.spec, undefined, api.headers));
       const previous = watcher.loadSnapshot(api.name);
-      watcher.saveSnapshot(api.name, spec);
 
       if (!previous) {
+        watcher.saveSnapshot(api.name, spec);
         const n = Object.keys(spec.paths ?? {}).length;
         console.log(`${api.name}: baseline captured (${n} endpoints) — commit .sma/specs/${api.name}.json`);
         continue;
@@ -119,6 +127,12 @@ const commands = {
         apiName: api.name,
         useLlm: !flags.has('--no-llm'),
       });
+      // Only now. Advancing the baseline before the diff is classified means a
+      // classifier failure — a network blip, a malformed response — leaves the new
+      // spec recorded as "already seen", and the change is never reported again.
+      // Silent blindness is the one failure this tool cannot afford, so the
+      // snapshot moves only once the changes it implies are safely in hand.
+      watcher.saveSnapshot(api.name, spec);
       for (const c of changes) all.push({ ...c, api: api.name });
       const breaking = changes.filter((c) => c.severity === 'breaking').length;
       console.log(
@@ -215,11 +229,49 @@ const commands = {
     await commands.scan();
     console.log('');
     const changes = await commands.check();
-    if (!changes.length) return;
-    console.log('');
-    await commands.impact();
-    if (flags.has('--fix')) await commands.fix();
-    else console.log('\n(report only — pass --fix to patch and open PRs)');
+    if (changes.length) {
+      console.log('');
+      await commands.impact();
+      if (flags.has('--fix')) await commands.fix();
+      else console.log('\n(report only — pass --fix to patch and open PRs)');
+    }
+    const code = process.exitCode;
+    await commands.report();
+    process.exitCode = code;
+  },
+
+  // Two specs in, classified changes out. No config, no baseline, no repo: the
+  // fastest way to ask "would upgrading from this version to that one break anyone?"
+  async diff() {
+    const [a, b] = positional;
+    if (!a || !b) throw new Error('usage: sma diff <old-spec> <new-spec>   (file paths or URLs)');
+    const [before, after] = await Promise.all(
+      [a, b].map(async (loc) => watcher.resolveRefs(await watcher.fetchSpec(loc, process.cwd()))),
+    );
+    const { changes } = await classify(before, after, { apiName: 'diff', useLlm: !flags.has('--no-llm') });
+    if (flags.has('--json')) console.log(JSON.stringify(changes, null, 2));
+    else {
+      const count = (sev) => changes.filter((c) => c.severity === sev).length;
+      console.log(report(changes) || 'no changes');
+      console.log(
+        `\n${changes.length} change(s): ${count('breaking')} breaking, ${count('warning')} warning, ${count('safe')} safe` +
+          (count('unknown') ? `, ${count('unknown')} unclassified` : ''),
+      );
+    }
+    process.exitCode = changes.some((c) => c.severity === 'breaking') ? EXIT.BREAKING : EXIT.OK;
+  },
+
+  // Render what is on disk into one HTML page. Reads only; never fetches.
+  async report() {
+    const cfg = store.loadConfig();
+    for (const api of cfg.apis) api.specShown = watcher.redact(api.spec);
+    const html = renderReport({
+      cfg,
+      impacts: store.latest('impact') ?? store.latestChanges(),
+      inventory: store.read('inventory.json'),
+      runs: store.read('runs.json', []),
+    });
+    console.log(`\nreport: ${store.writeText('report.html', html)}`);
   },
 
   // What is available, and — the part that matters — what you lose without it.
@@ -239,6 +291,7 @@ const commands = {
       [!!has('gh'), 'gh CLI', 'without it: the PR body is written to .sma/pr/ instead of opened'],
       [!!(process.env.GH_TOKEN || process.env.GITHUB_TOKEN), 'GH_TOKEN', 'without it: `gh` cannot open the PR'],
     ];
+    console.log(`  sma ${VERSION}`);
     for (const [ok, label, why] of rows) {
       console.log(`  ${ok ? 'ok  ' : 'MISS'}  ${label}${ok ? '' : `\n          ${why}`}`);
     }
@@ -250,13 +303,17 @@ const commands = {
     process.exitCode = blocked ? EXIT.FAILED : EXIT.OK;
   },
 
+  version() {
+    console.log(VERSION);
+  },
+
   async reset() {
     rmSync(store.SMA, { recursive: true, force: true });
     console.log(`cleared ${store.SMA} — the next run captures a fresh baseline and detects nothing`);
   },
 
   help() {
-    console.log(`sma — self-maintaining API integrations
+    console.log(`sma ${VERSION} — self-maintaining API integrations
 
   sma init            write watch.yaml, or capture the baseline if it exists
   sma doctor          report what is installed and what each missing piece costs
@@ -264,10 +321,14 @@ const commands = {
   sma check           fetch specs, diff against the last snapshot, classify changes
   sma impact          map the latest changes onto the call sites
   sma fix             hand breaking+used changes to the repair agent, open PRs
-  sma run [--fix]     all of the above
-  sma reset           forget every snapshot and start over
+  sma run [--fix]     all of the above, then write the HTML report
+  sma diff <a> <b>    classify the changes between two spec files or URLs
+  sma report          render the latest results to .sma/report.html
+  sma reset          forget every snapshot and start over
+  sma version         print the version (also --version, -v)
 
   --no-llm            rules only; never call the API for ambiguous deltas
+  --json              (diff) print the changes as JSON
   --config <path>     use this watch.yaml (default: nearest one up from the cwd)
 
 exit codes
@@ -277,6 +338,8 @@ exit codes
 `);
   },
 };
+// `--version` and `-v` arrive in the command slot, so alias them there.
+commands['--version'] = commands['-v'] = commands.version;
 
 try {
   await (commands[command] ?? commands.help)();

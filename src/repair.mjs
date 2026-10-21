@@ -9,6 +9,9 @@ import { spawnSync } from 'node:child_process';
 import * as store from './store.mjs';
 
 const AGENT_TOOLS = 'Read,Edit,Write,Glob,Grep';
+// A hung agent or test suite must end the run, not the CI job's patience.
+const AGENT_TIMEOUT_MS = 15 * 60_000;
+const TEST_TIMEOUT_MS = 10 * 60_000;
 
 export function git(repo, args, opts = {}) {
   const res = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', ...opts });
@@ -23,6 +26,29 @@ export const isGitRepo = (repo) =>
   spawnSync('git', ['-C', repo, 'rev-parse', '--git-dir'], { encoding: 'utf8' }).status === 0;
 
 export const isClean = (repo) => git(repo, ['status', '--porcelain']) === '';
+
+// Every path the agent touched, including ones it created. `git diff --name-only`
+// lists tracked modifications only, so a repair implemented as a new module looked
+// like no edits at all and the whole run was thrown away — and when it did survive,
+// `git add -A` in pr.mjs committed the new file without it ever being scope-checked.
+export function touchedFiles(repo) {
+  // -uall: without it git collapses a new directory to "nested/", which would never
+  // match a predicted file path and would read as outside-scope noise.
+  return git(repo, ['status', '--porcelain', '--untracked-files=all'])
+    .split('\n')
+    .filter(Boolean)
+    // Porcelain v1 is "XY<space>path", but git() trims its output as a whole, so
+    // only the FIRST line loses the leading space of an unstaged entry (" M foo");
+    // every later line keeps it. Match optional space + 1-2 status chars — with a
+    // zero-width status match, " M foo" became "M foo" and a correct repair was
+    // flagged outside-scope. Counting columns instead is how "tracked.js" once
+    // became "racked.js". A rename is "R  old -> new"; the new name has to pass tests.
+    .map((line) => {
+      const path = line.replace(/^\s*\S{1,2}\s+/, '');
+      const arrow = path.indexOf(' -> ');
+      return (arrow > -1 ? path.slice(arrow + 4) : path).replace(/^"|"$/g, '');
+    });
+}
 
 export function buildPrompt(impact) {
   const sites = impact.sites.map((s) => `  - ${s.file}:${s.line}   ${s.snippet}`).join('\n');
@@ -56,7 +82,11 @@ function runAgent(prompt, cfg) {
     input: prompt,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    timeout: AGENT_TIMEOUT_MS,
   });
+  if (res.error?.code === 'ETIMEDOUT') {
+    return { ok: false, output: `(agent timed out after ${AGENT_TIMEOUT_MS / 60_000} min)`, stderr: '' };
+  }
   if (res.error) throw new Error(`could not run the claude CLI: ${res.error.message}`);
   return { ok: res.status === 0, output: (res.stdout ?? '').trim(), stderr: (res.stderr ?? '').trim() };
 }
@@ -69,8 +99,11 @@ export function runTests(cfg) {
     encoding: 'utf8',
     shell: true,
     maxBuffer: 16 * 1024 * 1024,
+    timeout: TEST_TIMEOUT_MS,
   });
-  return { pass: res.status === 0, output: `${res.stdout ?? ''}${res.stderr ?? ''}`.trim() };
+  const timedOut = res.error?.code === 'ETIMEDOUT' ? `
+(test suite timed out after ${TEST_TIMEOUT_MS / 60_000} min)` : '';
+  return { pass: res.status === 0, output: `${res.stdout ?? ''}${res.stderr ?? ''}${timedOut}`.trim() };
 }
 
 export function startSession(cfg, apiName, stamp) {
@@ -91,7 +124,7 @@ export function applyOne(impact, cfg, branch) {
 
 // Independent verification. The agent never ran any of this.
 export function finish(cfg, impacts, base, branch) {
-  const changedFiles = git(cfg.repoPath, ['diff', '--name-only']).split('\n').filter(Boolean);
+  const changedFiles = touchedFiles(cfg.repoPath);
   if (!changedFiles.length) {
     git(cfg.repoPath, ['checkout', base]);
     git(cfg.repoPath, ['branch', '-D', branch], { allowFail: true });
@@ -109,7 +142,9 @@ export function finish(cfg, impacts, base, branch) {
     changedFiles,
     outsideScope,
     tests,
-    diffstat: git(cfg.repoPath, ['diff', '--stat']),
+    // Staged first, so the stat covers created files too — a bare `git diff --stat`
+    // omits exactly the files touchedFiles() just rescued.
+    diffstat: (git(cfg.repoPath, ['add', '-A']), git(cfg.repoPath, ['diff', '--cached', '--stat'])),
     needsHuman: !tests.pass || outsideScope.length > 0,
   };
 }

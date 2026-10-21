@@ -5,7 +5,7 @@ whether the change breaks anything **you actually call**, patches the call sites
 coding agent, verifies the result itself, and opens a PR.
 
 ```
-watch.yaml → fetch spec → diff vs snapshot → 12 breaking-change rules
+watch.yaml → fetch spec → diff vs snapshot → 17 change rules
                                                    ↓
                         AST inventory of your repo  ⋈  impact
                                                    ↓
@@ -36,13 +36,40 @@ Then `npx sma check` in CI. Requires node 22+.
 
 ```bash
 npm install
+npm run demo:setup                     # builds demo/demo-app — it is its own git repo
 node demo/petstore/server.mjs &        # a fake upstream API you control
 
 node sma.mjs run                       # first run: records the baseline
 echo v2 > demo/petstore/ACTIVE         # upstream ships a breaking release
 node sma.mjs run                       # detects it, maps it, reports
 node sma.mjs fix                       # patches it, verifies, opens a PR
+node sma.mjs report                    # open .sma/report.html in a browser
 ```
+
+## It works on real APIs
+
+Providers like OpenAI, Stripe, GitHub, Cloudflare, Twilio and DigitalOcean publish
+their OpenAPI specs in public repos that change every week. `npm run demo:real`
+replays OpenAI's 2023 removal of `/engines`, `/answers` and three other endpoints
+against a small app written for the old API:
+
+```
+[breaking] PATH_REMOVED  /engines
+    -> openai.js:6  fetch(`${BASE}/engines`, { headers })
+    -> bot.js:4  const engines = await listEngines()
+[breaking] PATH_REMOVED  /answers
+    -> openai.js:11  fetch(`${BASE}/answers`, {
+    -> bot.js:6  answer(question, docs)
+[breaking] PATH_REMOVED  /classifications
+    -> not affected (no call sites in this repo)
+...
+2 breaking change(s) with call sites in this repo.
+```
+
+Every existing spec-diff tool (oasdiff, Optic, openapi-diff) is built for the
+provider checking its own API. sma is the consumer-side counterpart: it watches
+someone else's API and patches your code. For the research, the alternatives
+and the honest limits, see [docs/market-research.md](docs/market-research.md).
 
 ## Commands
 
@@ -54,7 +81,9 @@ node sma.mjs fix                       # patches it, verifies, opens a PR
 | `sma check` | Fetch specs, diff against the last snapshot, classify each change |
 | `sma impact` | Map the latest changes onto the call sites |
 | `sma fix` | Hand breaking-and-used changes to the repair agent, open PRs |
-| `sma run [--fix]` | All of the above |
+| `sma run [--fix]` | All of the above, then write the HTML report |
+| `sma diff <old> <new>` | Classify the changes between two spec files or URLs — no config needed |
+| `sma report` | Render the latest findings, call sites and repair runs to `.sma/report.html` |
 | `sma reset` | Forget every snapshot and start over |
 
 `--no-llm` keeps it purely deterministic: rules only, never calls the API.
@@ -95,6 +124,8 @@ apis:
     spec: http://localhost:8787/openapi.json
     baseUrl: http://localhost:8787
     sdk: "@octokit/rest"     # optional; also match SDK method chains
+    headers:                 # optional; for a private spec. ${VAR} comes from the env
+      Authorization: "Bearer ${SPEC_TOKEN}"
 ```
 
 ## How it decides something is breaking
@@ -155,8 +186,11 @@ src/inventory.mjs    ts-morph call-site scan + one-hop callers
 src/impact.mjs       join changes ⋈ call sites
 src/repair.mjs       branch, run the agent, verify independently
 src/pr.mjs           commit, push, gh pr create
+src/report.mjs       the self-contained HTML report
 demo/petstore/       fake upstream API with a v1 → v2 breaking release
-demo/demo-app/       sample repo that consumes it
+demo/app/            sample repo that consumes it — the tracked source
+demo/setup.mjs       copies demo/app to demo/demo-app and git-inits it
+demo/real-world/     a real OpenAI spec change replayed against a small app
 ```
 
 State lives in `.sma/` as plain JSON — snapshots, inventory, detected changes, the
@@ -188,7 +222,9 @@ npm test
 
 `test/diff.test.mjs` asserts the exact rule hits for v1 → v2 with no false
 positives; `test/inventory.test.mjs` asserts the exact call sites found in a
-fixture repo. Those two are the load-bearing ones.
+fixture repo. Those two are the load-bearing ones. `test/repair.test.mjs` covers
+which files the harness counts as the agent's work, `test/auth.test.mjs` the
+auth rule, and `test/watcher.test.mjs` how a local `spec:` path is resolved.
 
 ## Automation
 

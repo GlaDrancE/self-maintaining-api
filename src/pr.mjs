@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { git } from './repair.mjs';
 import * as store from './store.mjs';
+import { redact } from './watcher.mjs';
 
 const endpointsOf = (i) =>
   (i.endpoints ?? [[i.method, i.path].filter(Boolean).join(' ')]).filter(Boolean).join(', ') || '(whole spec)';
@@ -30,7 +31,7 @@ What the agent reported:
 
   return `## \`${api.name}\` spec changed — ${impacts.length} breaking change(s) patched
 
-Spec: ${api.spec}
+Spec: ${redact(api.spec)}
 
 ${sections}
 
@@ -73,6 +74,12 @@ export function open(impacts, agents, result, api, cfg) {
   const args = ['pr', 'create', '--title', title, '--body', body, '--head', result.branch, '--base', result.base];
   if (result.needsHuman) args.push('--label', 'needs-human');
   const res = spawnSync('gh', args, { cwd: cfg.repoPath, encoding: 'utf8' });
-  if (res.status !== 0) return { url: null, title, bodyFile, note: `gh pr create failed: ${res.stderr?.trim()}` };
+  // On ENOENT spawnSync sets `error` and leaves status and stderr null, so reading
+  // stderr alone reported `gh pr create failed: undefined`. The branch is already
+  // pushed by this point — say where the body is so the PR can be opened by hand.
+  if (res.error || res.status !== 0) {
+    const why = res.error ? `the gh CLI is not on PATH (${res.error.code ?? res.error.message})` : res.stderr?.trim() || `exit ${res.status}`;
+    return { url: null, title, bodyFile, note: `gh pr create failed: ${why} — branch ${result.branch} is pushed; body in ${bodyFile}` };
+  }
   return { url: res.stdout.trim(), title, bodyFile };
 }

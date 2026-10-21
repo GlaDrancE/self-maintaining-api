@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sma — self-maintaining API integrations</title>
+<meta name="description" content="sma watches the OpenAPI specs your code depends on, works out what a change breaks in the calls you actually make, patches them with a coding agent, verifies the result, and opens a PR. Nothing merges automatically.">
+<style>
+:root {
+  --bg: #fbfbfa;
+  --bg-sunk: #f2f2ef;
+  --fg: #17181a;
+  --fg-mute: #55585e;
+  --fg-faint: #7c8088;
+  --line: #dcdcd6;
+  --line-strong: #c2c2ba;
+  --accent: #9a3412;
+  --accent-bg: #fdf1e9;
+  --term-bg: #16181c;
+  --term-fg: #d6d8dc;
+  --term-mute: #8a8f98;
+  --term-accent: #e8a06a;
+  --term-green: #86c08a;
+  --sev-breaking: #a02020;
+  --sev-warning: #8a5a00;
+  --sev-safe: #2c6a44;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101114;
+    --bg-sunk: #171a1e;
+    --fg: #e7e9ec;
+    --fg-mute: #a7acb4;
+    --fg-faint: #848a93;
+    --line: #2a2e34;
+    --line-strong: #3b4048;
+    --accent: #e8a06a;
+    --accent-bg: #241a13;
+    --term-bg: #08090b;
+    --term-fg: #d6d8dc;
+    --term-mute: #878d96;
+    --term-accent: #e8a06a;
+    --term-green: #86c08a;
+    --sev-breaking: #e97b7b;
+    --sev-warning: #d7a44a;
+    --sev-safe: #7cc79a;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { width: 100%; max-width: 880px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
+@media (max-width: 420px) { .wrap { padding-left: 16px; padding-right: 16px; } body { font-size: 16px; } }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+h1, h2, h3 { line-height: 1.2; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+h2 { font-size: clamp(1.45rem, 1.1rem + 1.4vw, 1.9rem); }
+h3 { font-size: 1.02rem; letter-spacing: 0; }
+p { margin: 0 0 1em; color: var(--fg-mute); max-width: 66ch; }
+p strong, li strong { color: var(--fg); font-weight: 600; }
+code { font-family: var(--mono); font-size: 0.88em; }
+:not(pre) > code {
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.08em 0.32em;
+  white-space: nowrap;
+}
+
+section { padding: 56px 0; border-top: 1px solid var(--line); }
+@media (min-width: 720px) { section { padding: 76px 0; } }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  margin: 0 0 12px;
+}
+.lede { font-size: 1.06em; }
+section > .wrap > h2 + p { margin-top: 14px; }
+
+/* ---- header ---- */
+header.site { border-top: 3px solid var(--accent); }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 18px 0; flex-wrap: wrap;
+}
+.brand { font-family: var(--mono); font-weight: 600; letter-spacing: -0.01em; }
+.brand .dim { color: var(--fg-faint); font-weight: 400; }
+.topnav { display: flex; gap: 18px; font-size: 0.88rem; font-family: var(--mono); }
+.topnav a { color: var(--fg-mute); text-decoration: none; }
+.topnav a:hover { color: var(--accent); text-decoration: underline; }
+
+/* ---- hero ---- */
+.hero { padding: 40px 0 60px; }
+@media (min-width: 720px) { .hero { padding: 72px 0 84px; } }
+.hero h1 {
+  font-family: var(--mono);
+  font-size: clamp(2.6rem, 1.6rem + 5vw, 4rem);
+  letter-spacing: -0.045em;
+  margin-bottom: 6px;
+}
+.hero .tagline {
+  font-size: clamp(1.15rem, 1rem + 0.9vw, 1.5rem);
+  color: var(--fg);
+  font-weight: 500;
+  max-width: 30ch;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0 0 20px;
+}
+.hero .detail { max-width: 60ch; }
+.hero .req { font-family: var(--mono); font-size: 0.8rem; color: var(--fg-faint); margin: 14px 0 0; }
+
+/* ---- install block ---- */
+.install { margin: 28px 0 24px; max-width: 620px; }
+.install-row {
+  display: flex; align-items: stretch;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+.install-row pre {
+  margin: 0; flex: 1 1 auto; min-width: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--mono); font-size: 0.9rem; line-height: 1.5;
+  color: var(--fg);
+}
+.install-row pre .p { color: var(--fg-faint); user-select: none; }
+button.copy {
+  flex: 0 0 auto;
+  border: 0; border-left: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--fg-mute);
+  font: 600 0.78rem/1 var(--mono);
+  letter-spacing: 0.06em;
+  padding: 0 16px;
+  cursor: pointer;
+}
+button.copy:hover { background: var(--accent-bg); color: var(--accent); }
+button.copy[data-done="1"] { color: var(--accent); }
+
+.cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 26px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 9px;
+  font: 500 0.95rem/1 var(--sans);
+  padding: 13px 20px; border-radius: 5px;
+  border: 1px solid var(--fg);
+  background: var(--fg); color: var(--bg);
+  text-decoration: none;
+}
+.btn:hover { opacity: 0.86; }
+.btn.ghost { background: transparent; color: var(--fg); border-color: var(--line-strong); }
+.btn.ghost:hover { border-color: var(--fg); opacity: 1; }
+.btn svg { flex: 0 0 auto; }
+
+/* ---- pipeline ---- */
+.pipe { margin: 32px 0 0; }
+.pipe ol {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: 0;
+  border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  counter-reset: step;
+}
+.pipe li {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 14px;
+  align-items: baseline;
+  padding: 16px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-sunk);
+}
+.pipe li:first-child { border-top: 0; }
+.pipe li::before {
+  counter-increment: step;
+  content: counter(step, decimal-leading-zero);
+  font: 500 0.78rem/1.6 var(--mono);
+  color: var(--accent);
+}
+.pipe b { display: block; font-family: var(--mono); font-weight: 600; font-size: 0.95rem; color: var(--fg); letter-spacing: -0.01em; }
+.pipe span { display: block; font-size: 0.92rem; color: var(--fg-mute); margin-top: 3px; }
+.pipe-out {
+  margin: 0; padding: 16px 18px;
+  border: 1px solid var(--accent); border-top: 0;
+  border-radius: 0 0 6px 6px;
+  background: var(--accent-bg);
+  font-family: var(--mono); font-size: 0.9rem; color: var(--fg);
+}
+.pipe ol { border-radius: 6px 6px 0 0; border-bottom: 0; }
+
+/* ---- terminal ---- */
+figure.term { margin: 28px 0 0; }
+.term-box {
+  background: var(--term-bg);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.term-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #2a2e34;
+  font: 0.74rem/1 var(--mono); color: var(--term-mute);
+  letter-spacing: 0.04em;
+}
+.term-head .dot { width: 9px; height: 9px; border-radius: 50%; background: #3b4048; }
+.term-box pre {
+  margin: 0; padding: 16px 14px 18px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--term-fg);
+  tab-size: 2;
+}
+@media (min-width: 640px) { .term-box pre { font-size: 13.5px; padding: 18px 20px 20px; } }
+.term-box .c { color: var(--term-accent); }
+.term-box .m { color: var(--term-mute); }
+.term-box .b { color: #e97b7b; }
+.term-box .s { color: var(--term-green); }
+figcaption { font-size: 0.86rem; color: var(--fg-faint); margin-top: 12px; font-family: var(--mono); }
+
+/* ---- pull quote / trust ---- */
+.trust blockquote {
+  margin: 0 0 26px;
+  padding: 0 0 0 20px;
+  border-left: 3px solid var(--accent);
+  font-size: clamp(1.3rem, 1.05rem + 1.2vw, 1.85rem);
+  line-height: 1.28;
+  letter-spacing: -0.025em;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* ---- tables ---- */
+.tscroll { overflow-x: auto; margin: 26px 0 0; border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+caption { text-align: left; padding: 12px 16px; font-size: 0.8rem; color: var(--fg-faint); font-family: var(--mono); border-bottom: 1px solid var(--line); }
+th, td { text-align: left; padding: 11px 16px; border-top: 1px solid var(--line); vertical-align: top; }
+thead th { border-top: 0; font-size: 0.74rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-faint); font-weight: 600; background: var(--bg-sunk); }
+tbody th { font-weight: 400; font-family: var(--mono); font-size: 0.85rem; color: var(--fg); }
+td { color: var(--fg-mute); }
+td.code, th.code { font-family: var(--mono); font-size: 0.85rem; white-space: nowrap; }
+.sev { font: 600 0.72rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; display: inline-block; padding-top: 3px; }
+.sev.breaking { color: var(--sev-breaking); }
+.sev.warning { color: var(--sev-warning); }
+.sev.safe { color: var(--sev-safe); }
+.rules td:first-child { width: 1%; }
+.rules code { display: inline-block; margin: 1px 0; }
+
+/* ---- generic lists ---- */
+.notes { list-style: none; margin: 26px 0 0; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--line); }
+.notes li { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.notes h3 { margin: 0 0 5px; font-family: var(--mono); font-size: 0.95rem; }
+.notes p { margin: 0; font-size: 0.95rem; }
+
+.two { display: grid; gap: 30px; margin-top: 28px; }
+@media (min-width: 720px) { .two { grid-template-columns: 1fr 1fr; gap: 44px; } }
+.two h3 { margin-bottom: 8px; font-family: var(--mono); }
+.two p:last-child { margin-bottom: 0; }
+
+/* ---- code blocks ---- */
+pre.block {
+  margin: 24px 0 0;
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  line-height: 1.7;
+  color: var(--fg);
+}
+pre.block .m { color: var(--fg-faint); }
+
+/* ---- footer ---- */
+footer.site { border-top: 1px solid var(--line); padding: 34px 0 52px; }
+.foot {
+  display: flex; flex-wrap: wrap; gap: 14px 26px;
+  align-items: baseline; justify-content: space-between;
+  font-family: var(--mono); font-size: 0.83rem; color: var(--fg-faint);
+}
+.foot nav { display: flex; gap: 20px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap topbar">
+    <span class="brand">sma<span class="dim"> — self-maintaining API integrations</span></span>
+    <nav class="topnav" aria-label="Section">
+      <a href="#real">Real API</a>
+      <a href="#rules">Rules</a>
+      <a href="#trust">Verification</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="https://github.com/ayush/self-maintaining-api">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="wrap hero">
+    <h1>sma</h1>
+    <p class="tagline">Your upstream API changed. Find out from a pull request, not from production.</p>
+    <p class="detail">sma watches the OpenAPI specs your code depends on. When one changes, it works
+      out whether the change breaks anything <strong>you actually call</strong>, patches the call
+      sites with a coding agent, verifies the result itself, and opens a PR.</p>
+
+    <div class="install">
+      <div class="install-row">
+        <pre id="install-cmd"><span class="p">$ </span>npm i -D self-maintaining-api</pre>
+        <button class="copy" type="button" id="copy-btn" data-cmd="npm i -D self-maintaining-api" aria-label="Copy install command">COPY</button>
+      </div>
+    </div>
+
+    <div class="cta">
+      <a class="btn" href="https://github.com/ayush/self-maintaining-api">
+        <svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        View on GitHub
+      </a>
+      <a class="btn ghost" href="#quickstart">Run the demo</a>
+    </div>
+    <p class="req">MIT · requires node 22+ · detection needs nothing but node and a network</p>
+  </div>
+
+  <section id="pipeline">
+    <div class="wrap">
+      <p class="eyebrow">The pipeline</p>
+      <h2>Spec in, pull request out</h2>
+      <p class="lede">Each stage writes plain JSON into <code>.sma/</code>, so you can read what it
+        decided and why at every step.</p>
+
+      <div class="pipe">
+        <ol>
+          <li><span><b>watch.yaml → fetch spec</b><span>The APIs you declared, pulled fresh, <code>$ref</code>s inlined.</span></span></li>
+          <li><span><b>diff vs snapshot</b><span>Structural diff against <code>.sma/specs/</code>, the baseline you committed.</span></span></li>
+          <li><span><b>breaking-change rules</b><span>Deterministic classification. Anything unmodelled goes to Claude, or is reported <code>UNCLASSIFIED</code>.</span></span></li>
+          <li><span><b>AST inventory ⋈ impact</b><span>Real call sites from <code>ts-morph</code>, joined against the changes.</span></span></li>
+          <li><span><b>headless Claude Code patches the call sites</b><span>One focused agent run per change, read/edit tools only.</span></span></li>
+          <li><span><b>harness runs the tests → git branch → gh pr create</b><span>sma runs your suite itself, then opens the branch as a PR.</span></span></li>
+        </ol>
+        <p class="pipe-out">Output: one branch, one PR, and a report you can read.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="trust" class="trust">
+    <div class="wrap">
+      <p class="eyebrow">The deliverable</p>
+      <blockquote>Nothing merges automatically. The PR is the deliverable.</blockquote>
+      <p>sma has no write access to your default branch and no opinion about when to
+        ship. It produces a branch, a diff, and a body that says what changed upstream,
+        which call sites it reached, and whether the tests passed. You review it the way
+        you review anything else.</p>
+      <p>When the harness is unhappy — the tests fail, or the agent edited a file nobody
+        predicted — <strong>the PR still opens.</strong> It is labelled <code>needs-human</code>
+        and the body says so. A suppressed PR is a break you find out about later.</p>
+
+      <div class="tscroll">
+        <table>
+          <caption>Exit codes — CI can only tell "your API broke" from "sma broke" if those are different numbers</caption>
+          <thead><tr><th scope="col" class="code">Code</th><th scope="col">Meaning</th></tr></thead>
+          <tbody>
+            <tr><th scope="row" class="code">0</th><td>Nothing broken</td></tr>
+            <tr><th scope="row" class="code">1</th><td>A breaking change reached this repo</td></tr>
+            <tr><th scope="row" class="code">2</th><td>sma itself failed — bad config, network, missing prerequisite</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="output">
+    <div class="wrap">
+      <p class="eyebrow">What a run looks like</p>
+      <h2>The report, before anything is patched</h2>
+      <p>The bundled demo ships a fake upstream that has a v1 and a breaking v2. Flip it to
+        v2 and run <code>sma run</code>. This is the actual output.</p>
+
+      <figure class="term">
+        <div class="term-box">
+          <div class="term-head"><span class="dot"></span> sma run</div>
+<pre><code><span class="m">$</span> <span class="c">echo v2 &gt; demo/petstore/ACTIVE</span>   <span class="m"># upstream ships a breaking release</span>
+<span class="m">$</span> <span class="c">node sma.mjs run</span>
+
+8 call site(s) across 3 file(s)
+  src/pets.js:4   GET /pets
+  src/pets.js:9   GET /pets/{}
+  src/pets.js:14  POST /pets
+  src/report.js:7 GET /pets/{}
+  test/api.test.mjs:16  GET /pets
+  test/api.test.mjs:22  GET /pets/{}
+  test/api.test.mjs:32  POST /pets
+
+petstore: 6 change(s), 5 breaking
+
+<span class="b">[breaking]</span> PARAM_RENAMED  GET /pets
+    query parameter 'limit' was renamed to 'pageSize'
+    -&gt; src/pets.js:4  fetch(`${BASE}/pets?limit=${limit}`)
+    -&gt; test/api.test.mjs:16  const pets = await listPets(2)
+<span class="b">[breaking]</span> REQUIRED_PARAM_ADDED  POST /pets
+    new required body parameter 'ownerId'
+    -&gt; src/pets.js:14  fetch(`${BASE}/pets`, {
+    -&gt; test/api.test.mjs:32  const pet = await createPet('Nix', 'ferret')
+<span class="b">[breaking]</span> RESPONSE_FIELD_REMOVED  GET /pets/{id}
+    response field 'tag' was removed
+    -&gt; src/pets.js:9  fetch(`${BASE}/pets/${id}`)
+    -&gt; src/report.js:7  fetch(`${BASE}/pets/${id}`)
+    -&gt; test/api.test.mjs:22  const pet = await getPet(1)
+    -&gt; test/api.test.mjs:28  assert.equal(await petSummary(2), '#2 Mia (cat) [pending]')
+<span class="s">[safe]</span> PATH_ADDED  /pets/{id}/owner
+    new endpoint /pets/{id}/owner
+    -&gt; not affected (no call sites in this repo)
+
+3 breaking change(s) with call sites in this repo.
+
+(report only — pass --fix to patch and open PRs)</code></pre>
+        </div>
+        <figcaption>Trimmed for length. Exit code 1. Add <code>--fix</code> to patch, verify and open the PR.</figcaption>
+      </figure>
+
+      <p style="margin-top:28px">Two things in that output are the whole point. A change with no call
+        sites is printed as <em>not affected</em> rather than dropped — that is what shows the
+        mapper is matching and not guessing. And <code>test/api.test.mjs:28</code> never touches
+        <code>fetch</code>; it asserts the old response shape from two functions away, and it
+        breaks too.</p>
+    </div>
+  </section>
+
+  <section id="real">
+    <div class="wrap">
+      <p class="eyebrow">Not just a demo</p>
+      <h2>Replayed on a real API change</h2>
+      <p>OpenAI publishes its spec at <code>openai/openai-openapi</code>. On 2023-06-19, commit
+        <code>d9c3021a</code> removed five endpoints. <code>npm run demo:real</code> replays it,
+        pinned to both commit SHAs, against a small app written for the old API.</p>
+
+      <figure class="term">
+        <div class="term-box">
+          <div class="term-head"><span class="dot"></span> npm run demo:real</div>
+<pre><code>openai: baseline captured (24 endpoints)
+<span class="m"># upstream ships commit d9c3021a</span>
+openai: 5 change(s), 5 breaking
+
+<span class="b">[breaking]</span> PATH_REMOVED  /engines
+    -&gt; openai.js:6  fetch(`${BASE}/engines`, { headers })
+    -&gt; bot.js:4  const engines = await listEngines()
+<span class="b">[breaking]</span> PATH_REMOVED  /answers
+    -&gt; openai.js:11  fetch(`${BASE}/answers`, {
+    -&gt; bot.js:6  answer(question, docs)
+<span class="b">[breaking]</span> PATH_REMOVED  /classifications
+    -&gt; not affected (no call sites in this repo)
+
+2 breaking change(s) with call sites in this repo.</code></pre>
+        </div>
+        <figcaption>Trimmed. All five removals are detected; only the two this app calls are claimed.</figcaption>
+      </figure>
+
+      <p style="margin-top:28px">The real spec also exposed noise a synthetic demo never would. OpenAI's
+        <code>x-oaiMeta</code> docs metadata showed up as 4 of the first 9 findings, so top-level
+        vendor extensions are now ignored.</p>
+
+      <div class="tscroll">
+        <table>
+          <caption>Where it fits: every existing spec-diff tool works for the provider</caption>
+          <thead><tr><th scope="col">Tool</th><th scope="col">Whose API it watches</th><th scope="col">Patches your code?</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">oasdiff, Optic, openapi-diff</th><td>Your own, before you ship it</td><td>No</td></tr>
+            <tr><th scope="row">Speakeasy, Fern, Stainless</th><td>Your own, to generate SDKs</td><td>No</td></tr>
+            <tr><th scope="row">Dependabot, Renovate</th><td>Package versions, not HTTP APIs</td><td>Bumps the version only</td></tr>
+            <tr><th scope="row">Pact</th><td>Both sides have to take part</td><td>No</td></tr>
+            <tr><th scope="row"><b>sma</b></th><td><b>Someone else's, as it changes</b></td><td><b>Yes, verified by your tests, as a PR</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="rules">
+    <div class="wrap">
+      <p class="eyebrow">Classification</p>
+      <h2>How it decides something is breaking</h2>
+      <p class="lede">Deterministic rules over the two specs — no LLM in the default path, so the
+        same input always gives the same answer and the whole thing is unit-testable.</p>
+
+      <div class="tscroll">
+        <table class="rules">
+          <caption>src/rules.mjs — the severity table</caption>
+          <thead><tr><th scope="col">Severity</th><th scope="col">Rule</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sev breaking">Breaking</span></td><td><code>PATH_REMOVED</code>, <code>METHOD_REMOVED</code></td></tr>
+            <tr><td><span class="sev breaking">Breaking</span></td><td><code>REQUIRED_PARAM_ADDED</code>, <code>PARAM_MADE_REQUIRED</code></td></tr>
+            <tr><td><span class="sev breaking">Breaking</span></td><td><code>PARAM_REMOVED</code>, <code>PARAM_RENAMED</code>, <code>PARAM_TYPE_CHANGED</code></td></tr>
+            <tr><td><span class="sev breaking">Breaking</span></td><td><code>RESPONSE_FIELD_REMOVED</code>, <code>RESPONSE_FIELD_TYPE_CHANGED</code></td></tr>
+            <tr><td><span class="sev breaking">Breaking</span></td><td><code>ENUM_VALUE_REMOVED</code>, <code>AUTH_SCHEME_CHANGED</code></td></tr>
+            <tr><td><span class="sev warning">Warning</span></td><td><code>PATH_DEPRECATED</code></td></tr>
+            <tr><td><span class="sev safe">Safe</span></td><td><code>PATH_ADDED</code>, <code>METHOD_ADDED</code>, <code>OPTIONAL_PARAM_ADDED</code>, <code>RESPONSE_FIELD_ADDED</code>, <code>ENUM_VALUE_ADDED</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="two">
+        <div>
+          <h3>Renames are structural</h3>
+          <p>One parameter out, one in, same location and same type. Not lexical — because
+            <code>limit</code> → <code>pageSize</code> shares no letters with its predecessor.</p>
+        </div>
+        <div>
+          <h3>The leftovers go to Claude</h3>
+          <p>Anything the rules don't cover is sent with the raw JSON-pointer diff and comes back
+            with a severity and a confidence. Below 0.7 it is reported but never auto-patched.
+            Without <code>ANTHROPIC_API_KEY</code> those deltas are surfaced as
+            <code>UNCLASSIFIED</code> rather than guessed at.</p>
+        </div>
+        <div>
+          <h3>Call sites come from the AST</h3>
+          <p><code>ts-morph</code> walks the tree, so a string that merely mentions <code>/pets</code>
+            is not a match but <code>fetch(`${BASE}/pets/${id}`)</code> is, resolved to
+            <code>GET /pets/{}</code>.</p>
+        </div>
+        <div>
+          <h3>And one hop out</h3>
+          <p>The function wrapping each request, and everything that calls it. That is what catches
+            the tests and helpers asserting the old response shape — they break too, and they live
+            nowhere near the <code>fetch</code>. A URL that can't be resolved statically is
+            reported as unresolved, never silently dropped.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="verify">
+    <div class="wrap">
+      <p class="eyebrow">Verification</p>
+      <h2>Why you can trust the patch</h2>
+      <p class="lede">The repair agent gets <code>Read, Edit, Write, Glob, Grep</code> —
+        <strong>no shell.</strong> It cannot run the tests, so its own report is never the evidence.</p>
+      <p>The harness runs <code>npm test</code> itself and diffs the changed file list against the
+        predicted impact. If the tests fail, or the agent touched a file nobody predicted, the PR
+        still opens — labelled <code>needs-human</code> and saying so in the body.</p>
+      <p>One spec bump is one branch and one PR. Each change gets its own focused agent run, but
+        they land together: a PR that fixed half of what an upgrade broke would fail its own test
+        suite.</p>
+
+      <div class="tscroll">
+        <table>
+          <caption>What you need, and what you lose without it — <code>sma doctor</code> prints this for your machine</caption>
+          <thead><tr><th scope="col">Layer</th><th scope="col" class="code">Needs</th><th scope="col">Missing it</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Detect (fetch, diff, rules)</th><td class="code">node 22+</td><td>this layer must never fail</td></tr>
+            <tr><th scope="row">Impact (AST scan)</th><td class="code">bundled</td><td>an unparsable file is reported, not fatal</td></tr>
+            <tr><th scope="row">Explain ambiguous deltas</th><td class="code">ANTHROPIC_API_KEY</td><td>they become <code>UNCLASSIFIED</code>; rules still apply</td></tr>
+            <tr><th scope="row">Repair</th><td class="code">claude CLI, git</td><td><code>--fix</code> refuses; you get the report and patch it yourself</td></tr>
+            <tr><th scope="row">Open the PR</th><td class="code">gh, GH_TOKEN</td><td>the PR body is written to <code>.sma/pr/</code> and printed</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="quickstart">
+    <div class="wrap">
+      <p class="eyebrow">Quickstart</p>
+      <h2>Set it up, then leave it in CI</h2>
+
+      <div class="two">
+        <div>
+          <h3>Install</h3>
+<pre class="block"><code>npm i -D self-maintaining-api
+npx sma init      <span class="m"># writes watch.yaml</span>
+<span class="m"># edit watch.yaml, add the APIs
+# you depend on</span>
+npx sma init      <span class="m"># captures the baseline</span>
+git add .sma/specs
+git commit -m "chore: sma baseline"</code></pre>
+          <p style="margin-top:14px;font-size:0.94rem"><strong>The baseline is the whole product.</strong>
+            <code>.sma/specs/</code> is what the API looked like last time. Commit it. If it is lost,
+            every run is a first run and sma reports "all clear" forever while detecting nothing.</p>
+        </div>
+        <div>
+          <h3>Try the demo</h3>
+<pre class="block"><code>npm install
+node demo/petstore/server.mjs &amp;
+
+node sma.mjs run   <span class="m"># records baseline</span>
+echo v2 &gt; demo/petstore/ACTIVE
+node sma.mjs run   <span class="m"># detects, maps, reports</span>
+node sma.mjs fix   <span class="m"># patches, verifies, PRs</span></code></pre>
+          <p style="margin-top:14px;font-size:0.94rem">Then <code>npx sma check</code> in CI. Pass
+            <code>--no-llm</code> to keep it purely deterministic — rules only, never calls the API.
+            <code>--config &lt;path&gt;</code> overrides the config; by default sma walks up from the
+            cwd to the nearest <code>watch.yaml</code>, the way <code>git</code> finds
+            <code>.git</code>.</p>
+        </div>
+      </div>
+
+      <h3 style="margin-top:44px">Commands</h3>
+      <div class="tscroll">
+        <table>
+          <thead><tr><th scope="col" class="code">Command</th><th scope="col">What it does</th></tr></thead>
+          <tbody>
+            <tr><th scope="row" class="code">sma init</th><td>Write <code>watch.yaml</code>, or capture the baseline if one already exists</td></tr>
+            <tr><th scope="row" class="code">sma doctor</th><td>Report what is installed and what each missing piece costs you</td></tr>
+            <tr><th scope="row" class="code">sma scan</th><td>Find every call site for the watched APIs in your repo</td></tr>
+            <tr><th scope="row" class="code">sma check</th><td>Fetch specs, diff against the last snapshot, classify each change</td></tr>
+            <tr><th scope="row" class="code">sma impact</th><td>Map the latest changes onto the call sites</td></tr>
+            <tr><th scope="row" class="code">sma fix</th><td>Hand breaking-and-used changes to the repair agent, open PRs</td></tr>
+            <tr><th scope="row" class="code">sma run [--fix]</th><td>All of the above</td></tr>
+            <tr><th scope="row" class="code">sma reset</th><td>Forget every snapshot and start over</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 style="margin-top:44px">Configuration</h3>
+<pre class="block"><code>repo: ./demo/demo-app        <span class="m"># the repo to scan and patch</span>
+test: npm test               <span class="m"># optional; how the harness verifies a repair</span>
+
+apis:
+  - name: petstore
+    spec: http://localhost:8787/openapi.json
+    baseUrl: http://localhost:8787
+    sdk: "@octokit/rest"     <span class="m"># optional; also match SDK method chains</span></code></pre>
+
+      <h3 style="margin-top:44px">In CI, daily</h3>
+<pre class="block"><code>on:
+  schedule: [{ cron: '0 6 * * *' }]
+  workflow_dispatch:
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npx sma run --fix
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}</code></pre>
+      <p style="margin-top:14px">No cache step: the baseline is committed, so it cannot be evicted.
+        Drop both secrets and the same workflow still runs — it just fails the job when an API
+        breaks you instead of writing the fix.</p>
+    </div>
+  </section>
+
+  <section id="limits">
+    <div class="wrap">
+      <p class="eyebrow">Scope</p>
+      <h2>What it does not do</h2>
+      <p class="lede">Each of these is a deliberate trade, not an oversight. They become bugs only
+        if they surprise you.</p>
+
+      <ul class="notes">
+        <li>
+          <h3>One hop out</h3>
+          <p>A request wrapped in a function, and that function's callers, are found. Three layers
+            of wrappers are not — that needs a real call graph.</p>
+        </li>
+        <li>
+          <h3>Rename inference is a heuristic</h3>
+          <p>Exactly one parameter out, one in, same location and type. Two simultaneous renames on
+            one endpoint are reported as a removal plus an addition.</p>
+        </li>
+        <li>
+          <h3>SDK matching looks for the operationId in the method chain</h3>
+          <p>Good for Octokit-shaped SDKs, a guess for others.</p>
+        </li>
+        <li>
+          <h3>Detection is as fresh as your cron</h3>
+          <p>A daily schedule means up to 24 hours between the upstream change and the PR.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="state">
+    <div class="wrap">
+      <p class="eyebrow">State</p>
+      <h2>Everything it knows is plain JSON in <code>.sma/</code></h2>
+      <p>Snapshots, inventory, detected changes, the prompts sent to the agent, PR bodies, and a run
+        log. Everything there is a per-run artifact and gitignored, <strong>except
+        <code>.sma/specs/</code></strong> — that is the baseline, and <code>sma init</code>
+        deliberately leaves it tracked.</p>
+      <p>Committing it means the history of every change an upstream API ever shipped is
+        <code>git log .sma/specs/stripe.json</code>.</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/ayush/self-maintaining-api">Read the source</a>
+        <a class="btn ghost" href="https://www.npmjs.com/package/self-maintaining-api">self-maintaining-api on npm</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site">
+  <div class="wrap foot">
+    <span>MIT licensed · node 22+</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/ayush/self-maintaining-api">GitHub</a>
+      <a href="https://www.npmjs.com/package/self-maintaining-api">npm</a>
+      <a href="https://github.com/ayush/self-maintaining-api/blob/main/README.md">README</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var btn = document.getElementById('copy-btn');
+  if (!btn) return;
+  if (!navigator.clipboard || !navigator.clipboard.writeText) { btn.hidden = true; return; }
+  btn.addEventListener('click', function () {
+    navigator.clipboard.writeText(btn.dataset.cmd).then(function () {
+      btn.textContent = 'COPIED';
+      btn.dataset.done = '1';
+      setTimeout(function () { btn.textContent = 'COPY'; btn.dataset.done = ''; }, 1600);
+    }, function () {
+      btn.textContent = 'SELECT IT';
+      setTimeout(function () { btn.textContent = 'COPY'; }, 1600);
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

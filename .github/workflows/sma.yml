@@ -42,6 +42,23 @@ jobs:
 
       - run: npm ci
 
+      # This repo's own watch.yaml points at the bundled demo, so the daily run is
+      # an end-to-end proof of the pipeline rather than a watch on a real API. Both
+      # steps are demo-only: delete them when you copy this workflow into a repo
+      # that watches a real spec over HTTPS.
+      - name: Build the demo app
+        run: npm run demo:setup
+
+      - name: Start the demo upstream API
+        run: |
+          node demo/petstore/server.mjs &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8787/openapi.json > /dev/null && exit 0
+            sleep 0.5
+          done
+          echo "petstore server did not come up" >&2
+          exit 1
+
       # The repair step shells out to headless Claude Code.
       - run: npm install -g @anthropic-ai/claude-code
 
@@ -60,7 +77,18 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node sma.mjs run ${{ inputs.fix == false && '' || '--fix' }}
+        run: |
+          set +e
+          node sma.mjs run ${{ inputs.fix == false && '' || '--fix' }}
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      # The HTML report: findings, call sites, repair runs. Download it from the run page.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sma-report
+          path: .sma/report.html
+          if-no-files-found: ignore
 
       # Push the new baseline even when a breaking change was found — especially
       # then. Skipping it would re-detect and re-report the same change tomorrow.
@@ -70,7 +98,14 @@ jobs:
           git diff --cached --quiet || git commit -m "chore(sma): update spec baseline"
           git push origin HEAD:${{ github.ref_name }} || echo "nothing to push"
 
-      # Exit 1 means an API broke us; exit 2 means sma itself failed. Both should
-      # fail the job, but only after the baseline is safely pushed.
+      # Exit 1 means an API broke us; exit 2 means sma itself failed. Both fail the
+      # job, but only after the baseline is safely pushed — and with the original
+      # code, so the log still says which one it was.
       - name: Report result
-        run: exit ${{ steps.sma.outcome == 'success' && '0' || '1' }}
+        run: |
+          case "${{ steps.sma.outputs.code }}" in
+            0) echo "nothing broken" ;;
+            1) echo "::error::a breaking API change reaches this repo — see the PR / report" ;;
+            *) echo "::error::sma itself failed (exit ${{ steps.sma.outputs.code }}) — see the step log" ;;
+          esac
+          exit ${{ steps.sma.outputs.code || 2 }}
