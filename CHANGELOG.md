@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-21
+
+### Fixed
+
+- A repair agent that failed to run (bad `ANTHROPIC_API_KEY`, no credit) was
+  reported only as "the agent made no edits". Its error is now printed.
+
 ## [1.1.0] - 2026-10-21
 
 ### Added
@@ -89,6 +96,7 @@ First release.
 - Scheduled GitHub Actions workflow that self-tests, checks, patches and commits
   the new spec baseline.
 
-[Unreleased]: https://github.com/GlaDrancE/self-maintaining-api/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/GlaDrancE/self-maintaining-api/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/GlaDrancE/self-maintaining-api/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/GlaDrancE/self-maintaining-api/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/GlaDrancE/self-maintaining-api/releases/tag/v1.0.0

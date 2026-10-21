@@ -202,6 +202,11 @@ const commands = {
       const result = finish(cfg, group, base, branch);
       if (!result.applied) {
         console.log(`    skipped: ${result.reason}`);
+        // An agent that never ran (bad key, no credit) looks exactly like one that
+        // chose not to edit. Say which, or the run is undebuggable from CI logs.
+        for (const a of agents.filter((a) => !a.ok)) {
+          console.log(`    agent failed: ${(a.stderr || a.output || '(no output)').slice(-800)}`);
+        }
         continue;
       }
       console.log(`    branch ${result.branch}, tests ${result.tests.pass ? 'PASS' : 'FAIL'}`);
